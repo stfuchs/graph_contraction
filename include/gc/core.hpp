@@ -79,11 +79,15 @@ namespace GC
       {
         edges.push_back( {(hh-1)*ww+w, (hh-1)*ww+w+1} );
       }
+      set_adjacency(edges,ww*hh);
+    }
 
+    void set_adjacency(std::vector<std::pair<int,int> > const& edges, int ndata)
+    {
       eprops.resize(edges.size());
       que.resize(edges.size());
       comp.p = &eprops;
-      g = GraphT(edges.begin(),edges.end(),ww*hh);
+      g = GraphT(edges.begin(),edges.end(), ndata);
     }
 
     void fit(std::vector<T> const& data)
@@ -105,48 +109,32 @@ namespace GC
         que[id] = { id };
       }
 
-      float cost = 0;
       int iteration = 0;
       size_t eid;
       Vd u, v;
-      while( iteration<max_iter_ )
+      while (!que.empty())
       {
-        while (!que.empty() && eprops[que.front().eid].outdated)
-        {
-          eid = que.front().eid;
-          pop_que();
-          if (eprops[eid].invalid) continue;
-
-          boost::tie(u,v) = split(eprops[eid].edge);
-          eprops[eid].cost = Policy<T>::cost(vprops[g[u].vid], vprops[g[v].vid],
-                                             g[u].ids.size(), g[v].ids.size());
-
-          eprops[eid].outdated = false;
-          push_que(eid);
-        }
-        //print_que(*this);
-
-        if(que.empty()) break;
         eid = que.front().eid;
         pop_que();
-        cost = eprops[eid].cost;
-        if(cost >= max_cost_) break;
-        boost::tie(u,v) = split(eprops[eid].edge);
-        if (boost::out_degree(u,g) > boost::out_degree(v,g)) contract(u,v);
-        else contract(v,u);
+        if (eprops[eid].invalid) continue;
 
-        ++iteration;
-        //print_graph(g);
+        boost::tie(u,v) = split(eprops[eid].edge);        
+        if (eprops[eid].outdated)
+        {
+          eprops[eid].outdated = false;
+          eprops[eid].cost = Policy<T>::cost(vprops[g[u].vid],vprops[g[v].vid],
+                                             g[u].ids.size(),g[v].ids.size());
+          push_que(eid);
+        }
+        else if (eprops[eid].cost <= max_cost_)
+        {
+          if (boost::out_degree(u,g) > boost::out_degree(v,g))
+            contract(u,v);
+          else
+            contract(v,u);
+          ++iteration;
+        }
       }
-    }
-
-    void init_and_fit(std::vector<T> const& data, std::vector<std::pair<size_t,size_t> > const& edges)
-    {
-      eprops.resize(edges.size());
-      que.resize(edges.size());
-      comp.p = &eprops;
-      g = GraphT(edges.begin(),edges.end(),data.size());
-      fit(data);
     }
 
     void contract(Vd const& a, Vd const& b)
