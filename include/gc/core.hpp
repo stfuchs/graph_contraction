@@ -67,7 +67,7 @@ namespace GC
 
     GraphContraction(Scalar max_cost) : max_cost_(max_cost){}
 
-    void init_grid_adjacency(int ww, int hh)
+    void init_grid_adjacency(int hh,int ww)
     {
       std::vector<std::pair<int,int> > edges;
       for (int h=0; h<hh-1; ++h) {
@@ -85,6 +85,7 @@ namespace GC
 
     void init_adjacency(std::vector<std::pair<int,int> > const& edges, int ndata)
     {
+      vprops.resize(ndata);
       eprops.resize(edges.size());
       que.resize(edges.size());
       comp.p = &eprops;
@@ -102,7 +103,6 @@ namespace GC
     template<typename DataT>
     void init_data(DataT const& data)
     {
-      vprops.resize(data.rows());
       size_t id = 0;
       auto vs = boost::vertices(g);
       for (auto vit=vs.first; vit!=vs.second; ++vit, ++id) {
@@ -162,7 +162,7 @@ namespace GC
     template<typename OutT>
     void get_labels(OutT& out) const
     {
-      out.resize(vprops.size(),1);
+      //out.resize(vprops.size(),1);
       int c = 0;
       auto vs = boost::vertices(g);
       for (auto vit=vs.first; vit!=vs.second; ++vit) {
@@ -175,7 +175,7 @@ namespace GC
     template<typename OutT>
     void get_representer(OutT& out) const
     {
-      out.resize(vprops.size(),Dim);
+      //out.resize(vprops.size(),Dim);
       auto vs = boost::vertices(g);
       for (auto vit=vs.first; vit!=vs.second; ++vit)
       {
@@ -202,6 +202,8 @@ namespace GC
     {
       return std::make_pair(boost::source(e,g), boost::target(e,g));
     }
+
+    inline int data_size() const { return vprops.size(); }
   };
 }
 #endif

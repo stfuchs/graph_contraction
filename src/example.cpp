@@ -24,7 +24,7 @@ int main(int argc, char** argv)
   std::uniform_real_distribution<double> dist(0, 1);
 
   int ww = 10;
-  int hh = 20;
+  int hh = 5;
   typedef Eigen::Matrix<double,Eigen::Dynamic,1> Mat;
   Mat data(ww*hh);
   std::vector<std::pair<size_t,size_t> > edges;
@@ -41,10 +41,10 @@ int main(int argc, char** argv)
   std::cout << "\n";
 
 
-  Mat result;
-  Eigen::Matrix<int,Eigen::Dynamic,1> ids;
+  Mat result(ww*hh,1);
+  Eigen::Matrix<int,Eigen::Dynamic,1> ids(ww*hh,1);
   GC::GraphContraction<double, 1, GC::Variance> gc(.05);
-  gc.init_grid_adjacency(ww,hh);
+  gc.init_grid_adjacency(hh,ww);
   gc.init_data(data);
   gc.fit();
   gc.get_representer(result);

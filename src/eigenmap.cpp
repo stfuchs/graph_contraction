@@ -10,7 +10,7 @@ struct EigenMap : Eigen::Map<Eigen::Matrix<T,R,C> >
   EigenMap(T* data)
     : Eigen::Map<Eigen::Matrix<T,R,C> >(data) { }
   EigenMap(T* data, int rows)
-    : Eigen::Map<Eigen::Matrix<T,Eigen::Dynamic,C> >(data, rows) { }
+    : Eigen::Map<Eigen::Matrix<T,Eigen::Dynamic,C> >(data, rows, C) { }
   EigenMap(T* data, int rows, int cols)
     : Eigen::Map<Eigen::Matrix<T,Eigen::Dynamic,Eigen::Dynamic> >(data, rows, cols) { }
 

@@ -5,7 +5,7 @@ from Cython.Build import cythonize
 
 ext = Extension(
     "graphcontraction",
-    sources=["py/graphcontraction.pyx"],
+    sources=["py/graphcontraction.pyx", "src/eigenmap.cpp"],
     include_dirs=["py/","src/","include/gc/"],
     language="c++"
 )
@@ -17,5 +17,5 @@ ext2 = Extension(
     language="c++"
 )
 
-cythonize([ext,ext2])
+cythonize([ext])
 

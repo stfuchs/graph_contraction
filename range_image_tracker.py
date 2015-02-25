@@ -7,10 +7,12 @@ import numpy as np
 import cv2
 from cv_bridge import CvBridge
 
+from graphcontraction import GC_F3
+
 class RangeImageTracker:
     def __init__(self):
         self.sub_img = rospy.Subscriber("/camera/depth/image", Image,
-                                        self.callback, queue_size=1)
+                                        self.callback, queue_size=1, buff_size=2**24)
         self.pub_img1 = rospy.Publisher("/tracking/range_image/image1",Image,queue_size=1)
         self.pub_img2 = rospy.Publisher("/tracking/range_image/image2",Image,queue_size=1)
         self.bridge = CvBridge()
@@ -22,6 +24,10 @@ class RangeImageTracker:
         start = rospy.Time.now()
         img = self.bridge.imgmsg_to_cv2(img_msg).copy()
         img = 1090. - 348./img
+        subsize = (120,160)
+        #subsize = (240,320)
+        img = cv2.resize(img, subsize, interpolation=cv2.INTER_NEAREST)
+
         nan_mask = np.isnan(img)
         img[nan_mask] = 0
         #diffx1 = img[:,3:] - img[:,:-3]
@@ -30,11 +36,19 @@ class RangeImageTracker:
         #diff21 = 1.-np.exp(-.1*np.abs(img[:,1:] - img[:,:-1]))[:-1,:]
         #diff13 = 1.-np.exp(-.1*np.abs(img[3:,:] - img[:-3,:]))[:,:-3]
         #diff23 = 1.-np.exp(-.1*np.abs(img[:,3:] - img[:,:-3]))[:-3,:]
-        diff15 = np.exp(-.3*np.abs(img[5:,:] - img[:-5,:]))[:,:-5]
-        diff25 = np.exp(-.3*np.abs(img[:,5:] - img[:,:-5]))[:-5,:]
+        #diff15 = np.exp(-.3*np.abs(img[5:,:] - img[:-5,:]))[:,:-5]
+        #diff25 = np.exp(-.3*np.abs(img[:,5:] - img[:,:-5]))[:-5,:]
+        diff15 = (np.abs(img[5:,:] - img[:-5,:]))[:,:-5]
+        diff25 = (np.abs(img[:,5:] - img[:,:-5]))[:-5,:]
         #diff15[nan_mask[:-5,:-5]] = 0
         #diff25[nan_mask[:-5,:-5]] = 0
         img_new = np.dstack([np.zeros_like(diff15), diff15, diff25 ])
+        w,h,c=img_new.shape
+        img_norm = np.linalg.norm(img_new,axis=2)
+        vec = img_new.reshape(w*h,3)
+        vec/=img_norm.reshape(w*h,1)
+        img_mean = vec.reshape(w,h,c)
+        img_mean[nan_mask[:-5,:-5],:] = 0
         #diffx = np.abs(img_new[5:,:] - img_new[:-5,:])[:,:-5]
         #diffy = np.abs(img_new[:,5:] - img_new[:,:-5])[:-5,:]
         #img_new = .5*(diffx+diffy)
@@ -42,17 +56,32 @@ class RangeImageTracker:
         #img_new = 1.-np.amax(np.dstack([diff11[:-4,:-4],diff21[:-4,:-4],diff15,diff25]),axis=2)
         #diffx = 1.-np.exp(-.1*np.abs(np.diff(img,axis=0)))[:,:-1]
         #diffy = 1.-np.exp(-.1*np.abs(np.diff(img,axis=1)))[:-1,:]
-        img_blur = cv2.GaussianBlur(img_new,(7,7),1.)
-        img_blur[nan_mask[:-5,:-5],:] = 0
-        if self.img_prev.shape != img_blur.shape:
-            img_mean = img_blur
-        else:
-            img_mean = .5*(img_blur + self.img_prev)
+        #img_blur = cv2.GaussianBlur(img_new,(7,7),1.)
+        #img_blur[nan_mask[:-5,:-5],:] = 0
+        #if self.img_prev.shape != img_blur.shape:
+        #    img_mean = img_blur
+        #else:
+        #    img_mean = img_blur #.5*(img_blur + self.img_prev)
 
+
+        #subsize = (120,160)
+        #img_mean = cv2.resize(img_mean, subsize, interpolation=cv2.INTER_NEAREST)
+        print(img_mean.shape)
+        #print(img_mean.flags)
+        print("Normals took %s sec"% (rospy.Time.now() - start).to_sec())
+        start = rospy.Time.now()
+        w,h,c=img_mean.shape
+        gc = GC_F3(.1)
+        gc.init_grid_adjacency(h,w)
+        gc.fit(np.ascontiguousarray(img_mean).reshape(h*w,3))
+        img_cartoon = gc.get_representer().reshape(w,h,3)
+        print("GC took %s sec"% (rospy.Time.now() - start).to_sec())
+        print(img_cartoon.shape)
+        
         msg = self.bridge.cv2_to_imgmsg( (img_mean*255.).astype(np.uint8),'bgr8')
         msg.header = img_msg.header
         self.pub_img1.publish(msg)
-        img_cartoon = cv2.bilateralFilter(img_mean,5,300,300)
+        #img_cartoon = cv2.bilateralFilter(img_mean,5,300,300)
         msg = self.bridge.cv2_to_imgmsg( (img_cartoon*255.).astype(np.uint8),'bgr8')
         self.pub_img2.publish(msg)
         self.img_prev = img_mean
