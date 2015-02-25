@@ -25,7 +25,8 @@ int main(int argc, char** argv)
 
   int ww = 10;
   int hh = 20;
-  std::vector<double> data(ww*hh);
+  typedef Eigen::Matrix<double,Eigen::Dynamic,1> Mat;
+  Mat data(ww*hh);
   std::vector<std::pair<size_t,size_t> > edges;
 
   std::cout << "Data:";
@@ -33,24 +34,25 @@ int main(int argc, char** argv)
   for (int h=0; h<hh; ++h) {
     for (int w=0; w<ww; ++w) {
       data[h*ww+w] = dist(mt);
-      std::cout << data[h*ww+w] << "\t";
+      std::cout << data.coeff(h*ww+w) << "\t";
     }
     std::cout << "\n";
   }
   std::cout << "\n";
 
 
-  std::vector<double> result;
-  std::vector<unsigned int> ids;
-  GC::GraphContraction<double, GC::VariancePolicy> gc(.05, 1000);
-  gc.set_grid_adjacency(ww,hh);
-  gc.fit(data);
+  Mat result;
+  Eigen::Matrix<int,Eigen::Dynamic,1> ids;
+  GC::GraphContraction<double, 1, GC::Variance> gc(.05);
+  gc.init_grid_adjacency(ww,hh);
+  gc.init_data(data);
+  gc.fit();
   gc.get_representer(result);
   gc.get_labels(ids);
 
   for (int h=0; h<hh; ++h){
     for (int w=0; w<ww; ++w){
-      std::cout << result[h*ww+w] << "\t";
+      std::cout << result.coeff(h*ww+w) << "\t";
     }
     std::cout << "\n";
   }
@@ -58,7 +60,7 @@ int main(int argc, char** argv)
 
   for (int h=0; h<hh; ++h){
     for (int w=0; w<ww; ++w){
-      std::cout << ids[h*ww+w] << "\t";
+      std::cout << ids.coeff(h*ww+w) << "\t";
     }
     std::cout << "\n";
   }

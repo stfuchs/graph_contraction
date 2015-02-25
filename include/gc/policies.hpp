@@ -13,24 +13,64 @@
 
 namespace GC
 {
-  template<typename T>
-  struct VariancePolicy
+  template<typename Scalar, int Dim>
+  struct Variance
   {
+    typedef Eigen::Matrix<Scalar,Dim,1> Vec;
+    typedef Eigen::Matrix<Scalar,1,Dim> Vec_t;
+    typedef Eigen::Matrix<Scalar,Dim,Dim> Mat;
+
     struct VertexProps
     {
       VertexProps() {}
-      VertexProps(T const& data) : sum(data), sum_sqr(data*data) {}
+      VertexProps(Vec_t const& data)
+        : sum(data.transpose()), sum_sqr(data.transpose()*data) {}
 
-      inline T representer(size_t n) const { return sum/float(n); }
+      inline Vec_t representer(size_t n) const { return (sum/Scalar(n)).transpose(); }
 
-      T sum;
-      T sum_sqr;
+      Vec sum;
+      Mat sum_sqr;
     };
 
-    static inline float cost(VertexProps const& a, VertexProps const& b, size_t na, size_t nb)
+    static inline Scalar cost(VertexProps const& a, VertexProps const& b, size_t na, size_t nb)
     {
-      float n_inv = 1./float(na+nb);
-      return n_inv*( (a.sum_sqr+b.sum_sqr) - n_inv*(a.sum+b.sum)*(a.sum+b.sum) );
+      Scalar n_inv = 1./Scalar(na+nb);
+      Vec mean = a.sum+b.sum;
+      Mat cov = n_inv*((a.sum_sqr+b.sum_sqr) - n_inv*mean*mean.transpose());
+      return cov.trace();
+    }
+
+    static inline void merge(VertexProps& a, VertexProps const& b)
+    {
+      a.sum += b.sum;
+      a.sum_sqr += b.sum_sqr;
+    }
+  };
+
+  template<typename Scalar>
+  struct Variance<Scalar,1>
+  {
+    typedef Eigen::Matrix<Scalar,1,1> Vec;
+    typedef Eigen::Matrix<Scalar,1,1> Mat;
+
+    struct VertexProps
+    {
+      VertexProps() {}
+      VertexProps(Vec const& data)
+        : sum(data), sum_sqr(data*data) {}
+
+      inline Vec representer(size_t n) const { return sum/Scalar(n); }
+
+      Vec sum;
+      Mat sum_sqr;
+    };
+
+    static inline Scalar cost(VertexProps const& a, VertexProps const& b, size_t na, size_t nb)
+    {
+      Scalar n_inv = 1./Scalar(na+nb);
+      Vec mean = a.sum+b.sum;
+      Mat cov = n_inv*((a.sum_sqr+b.sum_sqr) - n_inv*mean*mean);
+      return cov.trace();
     }
 
     static inline void merge(VertexProps& a, VertexProps const& b)

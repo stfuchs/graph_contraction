@@ -15,7 +15,8 @@
 #include <list>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graph_traits.hpp>
-//#include <gc/print.hpp>
+#include <Eigen/Core>
+#include <gc/policies.hpp>
 
 // Notations:
 //   templates:
@@ -33,82 +34,85 @@ namespace GC
   typedef typename boost::graph_traits<GraphT>::vertex_descriptor Vd;
   typedef typename boost::graph_traits<GraphT>::edge_descriptor Ed;
 
+  template<typename Scalar>
   struct EdgeProps
   {
     Ed edge;
-    float cost;
+    Scalar cost;
     bool outdated;
     bool invalid;
   };
 
-  template<typename T, template<typename> class Policy>
+  template<typename Scalar, int Dim, template<typename,int> class Policy>
   struct GraphContraction
   {
+    typedef Policy<Scalar,Dim> PolicyT;
+    typedef typename PolicyT::VertexProps VertexPropsT;
+    typedef EdgeProps<Scalar> EdgePropsT;
+    
     struct Event { size_t eid; };
     struct EventCompare
     {
-      std::vector<EdgeProps>* p;
+      std::vector<EdgePropsT>* p;
       bool operator()(Event const& a, Event const& b) { return (*p)[a.eid].cost > (*p)[b.eid].cost; }
     };
 
     GraphT g;
-    std::vector<EdgeProps> eprops;
-    std::vector<typename Policy<T>::VertexProps> vprops;
+    std::vector<EdgePropsT> eprops;
+    std::vector<VertexPropsT> vprops;
     std::vector<Event> que;
 
     EventCompare comp;
-    float max_cost_;
-    int max_iter_;
+    Scalar max_cost_;
 
-    GraphContraction(float max_cost, int max_iteration)
-      : max_cost_(max_cost), max_iter_(max_iteration) {}
+    GraphContraction(Scalar max_cost) : max_cost_(max_cost){}
 
-    void set_grid_adjacency(int ww, int hh)
+    void init_grid_adjacency(int ww, int hh)
     {
       std::vector<std::pair<int,int> > edges;
-      for (int h=0; h<hh-1; ++h)
-      {
-        for (int w=0; w<ww-1; ++w)
-        {
+      for (int h=0; h<hh-1; ++h) {
+        for (int w=0; w<ww-1; ++w) {
           edges.push_back( {h*ww+w, h*ww+w+1} );
           edges.push_back( {h*ww+w, (h+1)*ww+w} );
         }
         edges.push_back( {(h+1)*ww-1, (h+2)*ww-1} );
       }
-      for (int w=0; w<ww-1; ++w)
-      {
+      for (int w=0; w<ww-1; ++w) {
         edges.push_back( {(hh-1)*ww+w, (hh-1)*ww+w+1} );
       }
-      set_adjacency(edges,ww*hh);
+      init_adjacency(edges,ww*hh);
     }
 
-    void set_adjacency(std::vector<std::pair<int,int> > const& edges, int ndata)
+    void init_adjacency(std::vector<std::pair<int,int> > const& edges, int ndata)
     {
       eprops.resize(edges.size());
       que.resize(edges.size());
       comp.p = &eprops;
       g = GraphT(edges.begin(),edges.end(), ndata);
-    }
 
-    void fit(std::vector<T> const& data)
-    {
-      vprops.resize(data.size());
       size_t id = 0;
-      auto vs = boost::vertices(g);
-      for (auto vit=vs.first; vit!=vs.second; ++vit, ++id)
-      {
-        g[*vit] = { id, {id} };
-        vprops[id] = typename Policy<T>::VertexProps(data[id]);
-      }
-      id = 0;
       auto es = boost::edges(g);
-      for (auto eit=es.first; eit!=es.second; ++eit, ++id)
-      {
+      for (auto eit=es.first; eit!=es.second; ++eit, ++id) {
         g[*eit] = { id };
         eprops[id] = { *eit, 0, true, false };
         que[id] = { id };
       }
+    }
 
+    template<typename DataT>
+    void init_data(DataT const& data)
+    {
+      vprops.resize(data.rows());
+      size_t id = 0;
+      auto vs = boost::vertices(g);
+      for (auto vit=vs.first; vit!=vs.second; ++vit, ++id) {
+        g[*vit] = { id, {id} };
+        vprops[id] = VertexPropsT(data.row(id));
+      }
+    }
+
+    void fit()
+    {
       int iteration = 0;
       size_t eid;
       Vd u, v;
@@ -122,8 +126,8 @@ namespace GC
         if (eprops[eid].outdated)
         {
           eprops[eid].outdated = false;
-          eprops[eid].cost = Policy<T>::cost(vprops[g[u].vid],vprops[g[v].vid],
-                                             g[u].ids.size(),g[v].ids.size());
+          eprops[eid].cost = PolicyT::cost(vprops[g[u].vid],vprops[g[v].vid],
+                                           g[u].ids.size(),g[v].ids.size());
           push_que(eid);
         }
         else if (eprops[eid].cost <= max_cost_)
@@ -140,8 +144,7 @@ namespace GC
     void contract(Vd const& a, Vd const& b)
     {
       auto oe = boost::out_edges(b,g);
-      for (auto oe_it=oe.first; oe_it!=oe.second; ++oe_it)
-      {
+      for (auto oe_it=oe.first; oe_it!=oe.second; ++oe_it) {
         size_t eid = g[*oe_it].eid;
         eprops[eid].outdated = true;
         Vd b_to = boost::target(*oe_it,g);
@@ -150,35 +153,35 @@ namespace GC
         else
           eprops[eid].edge = boost::add_edge(b_to, a, {eid}, g).first;
       }
-      Policy<T>::merge(vprops[g[a].vid], vprops[g[b].vid]);
+      PolicyT::merge(vprops[g[a].vid], vprops[g[b].vid]);
       g[a].ids.splice(g[a].ids.end(), g[b].ids);
       boost::clear_vertex(b,g);
       boost::remove_vertex(b,g);
     }
 
-    void get_labels(std::vector<unsigned int>& out) const
+    template<typename OutT>
+    void get_labels(OutT& out) const
     {
-      out.resize(vprops.size());
-      unsigned int c = 0;
+      out.resize(vprops.size(),1);
+      int c = 0;
       auto vs = boost::vertices(g);
-      for (auto vit=vs.first; vit!=vs.second; ++vit)
-      {
+      for (auto vit=vs.first; vit!=vs.second; ++vit) {
         for (auto it=g[*vit].ids.begin(); it!=g[*vit].ids.end(); ++it) {
           out[*it] = c;
         }
         ++c;
       }
     }
-
-    void get_representer(std::vector<T>& out) const
+    template<typename OutT>
+    void get_representer(OutT& out) const
     {
-      out.resize(vprops.size());
+      out.resize(vprops.size(),Dim);
       auto vs = boost::vertices(g);
       for (auto vit=vs.first; vit!=vs.second; ++vit)
       {
-        T rep = vprops[g[*vit].vid].representer(g[*vit].ids.size());
+        auto rep = vprops[g[*vit].vid].representer(g[*vit].ids.size());
         for (auto it=g[*vit].ids.begin(); it!=g[*vit].ids.end(); ++it) {
-          out[*it] = rep;
+          out.row(*it) = rep;
         }
       }
     }
