@@ -9,11 +9,10 @@ struct EigenMap : Eigen::Map<Eigen::Matrix<T,R,C> >
     : Eigen::Map<Eigen::Matrix<T,R,C> >(NULL) { }
   EigenMap(T* data)
     : Eigen::Map<Eigen::Matrix<T,R,C> >(data) { }
-  EigenMap(T* data, int rows)
-    : Eigen::Map<Eigen::Matrix<T,Eigen::Dynamic,C> >(data, rows, C) { }
+  EigenMap(T* data, int cols)
+    : Eigen::Map<Eigen::Matrix<T,R,Eigen::Dynamic> >(data, R, cols) { }
   EigenMap(T* data, int rows, int cols)
     : Eigen::Map<Eigen::Matrix<T,Eigen::Dynamic,Eigen::Dynamic> >(data, rows, cols) { }
-
   std::string rep() const
   {
     std::stringstream ss;

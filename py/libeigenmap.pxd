@@ -25,45 +25,44 @@ cdef extern from "../src/eigenmap.cpp":
         Map3d(double*) except+
         void reset(double*)
         
-    cdef cppclass MapXi "EigenMap<int,Eigen::Dynamic,1>":
+    cdef cppclass MapXi "EigenMap<int,1,Eigen::Dynamic>":
         MapXi() except+
         MapXi(int*, int) except+
         void reset(int*, int)
-    cdef cppclass MapXf "EigenMap<float,Eigen::Dynamic,1>":
+    cdef cppclass MapXf "EigenMap<float,1,Eigen::Dynamic>":
         MapXf() except+
         MapXf(float*, int) except+
         void reset(float*, int)
-    cdef cppclass MapXd "EigenMap<double,Eigen::Dynamic,1>":
+    cdef cppclass MapXd "EigenMap<double,1,Eigen::Dynamic>":
         MapXd() except+
         MapXd(double*, int) except+
         void reset(double*, int)
         
-    cdef cppclass MapX2i "EigenMap<int,Eigen::Dynamic,2>":
+    cdef cppclass MapX2i "EigenMap<int,2,Eigen::Dynamic>":
         MapX2i() except+
         MapX2i(int*, int) except+
         void reset(int*, int)
-    cdef cppclass MapX2f "EigenMap<float,Eigen::Dynamic,2>":
+    cdef cppclass MapX2f "EigenMap<float,2,Eigen::Dynamic>":
         MapX2f() except+
         MapX2f(float*, int) except+
         void reset(float*, int)
-    cdef cppclass MapX2d "EigenMap<double,Eigen::Dynamic,2>":
+    cdef cppclass MapX2d "EigenMap<double,2,Eigen::Dynamic>":
         MapX2d() except+
         MapX2d(double*, int) except+
         void reset(double*, int)
 
-    cdef cppclass MapX3i "EigenMap<int,Eigen::Dynamic,3>":
+    cdef cppclass MapX3i "EigenMap<int,3,Eigen::Dynamic>":
         MapX3i() except+
         MapX3i(int*, int) except+
         void reset(int*, int)
-    cdef cppclass MapX3f "EigenMap<float,Eigen::Dynamic,3>":
+    cdef cppclass MapX3f "EigenMap<float,3,Eigen::Dynamic>":
         MapX3f() except+
         MapX3f(float*, int) except+
         void reset(float*, int)
-    cdef cppclass MapX3d "EigenMap<double,Eigen::Dynamic,3>":
+    cdef cppclass MapX3d "EigenMap<double,3,Eigen::Dynamic>":
         MapX3d() except+
         MapX3d(double*, int) except+
         void reset(double*, int)
-
     cdef cppclass MapXXi "EigenMap<int,Eigen::Dynamic,Eigen::Dynamic>":
         MapXXi() except+
         MapXXi(int*, int, int) except+
@@ -76,3 +75,4 @@ cdef extern from "../src/eigenmap.cpp":
         MapXXd() except+
         MapXXd(double*, int, int) except+
         void reset(double*, int, int)
+

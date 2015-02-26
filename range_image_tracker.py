@@ -9,85 +9,60 @@ from cv_bridge import CvBridge
 
 from graphcontraction import GC_F3
 
+def gradients(z,l):
+    #z = cv2.GaussianBlur(z,(l*2+1,l*2+1),10.)
+    yy,xx=z.shape
+    diffx = np.zeros([yy,xx-2*l,2*l], z.dtype)
+    diffy = np.zeros([yy-2*l,xx,2*l], z.dtype)
+    for i in range(1,l+1):
+        dx = 1./float(i)*(z[:,i:] - z[:,:-i])[:,:xx-l]
+        diffx[:,:,(i-1)*2  ] = dx[:,  l:  ]
+        diffx[:,:,(i-1)*2+1] = dx[:,l-i:-i]
+
+        dy = 1./float(i)*(z[i:,:] - z[:-i,:])[:yy-l,:]
+        diffy[:,:,(i-1)*2  ] = dy[l  :  ,:]
+        diffy[:,:,(i-1)*2+1] = dy[l-i:-i,:]
+    return diffx[l:-l,:,:],diffy[:,l:-l,:]
+
+def medNormals(z,l):
+    diffx,diffy = gradients(z,l)
+    dx = np.median(diffx,axis=2)
+    dy = np.median(diffy,axis=2)
+    dz = np.ones_like(dx)/742.
+    info = (z.shape, np.min(dx), np.max(dx), np.min(dy), np.max(dy))
+    #print("Res: %s, x:[%s, %s], y:[%s, %s]"%info)
+    denom = 1./np.linalg.norm(np.dstack([dx,dy,dz]),axis=2)
+    return (np.dstack([dx*denom,dy*denom,dz*denom])+1.)*.5
+
+
 class RangeImageTracker:
     def __init__(self):
         self.sub_img = rospy.Subscriber("/camera/depth/image", Image,
                                         self.callback, queue_size=1, buff_size=2**24)
-        self.pub_img1 = rospy.Publisher("/tracking/range_image/image1",Image,queue_size=1)
+        self.pub_img1 = rospy.Publisher("/tracking/range_image/pseudo_normals",Image,queue_size=1)
         self.pub_img2 = rospy.Publisher("/tracking/range_image/image2",Image,queue_size=1)
         self.bridge = CvBridge()
         print("Default input /camera/depth/image [sensor_msgs::Image]")
         print("Default output /tracking/range_image/image [sensor_msgs::Image]")
-        self.img_prev = np.zeros([])
+        self.N = np.zeros([])
 
     def callback(self, img_msg):
         start = rospy.Time.now()
         img = self.bridge.imgmsg_to_cv2(img_msg).copy()
-        img = 1090. - 348./img
-        subsize = (120,160)
-        #subsize = (240,320)
-        img = cv2.resize(img, subsize, interpolation=cv2.INTER_NEAREST)
-
-        nan_mask = np.isnan(img)
-        img[nan_mask] = 0
-        #diffx1 = img[:,3:] - img[:,:-3]
-        #diffy1 = img[3:,:] - img[:-3,:]
-        #diff11 = 1.-np.exp(-.1*np.abs(img[1:,:] - img[:-1,:]))[:,:-1]
-        #diff21 = 1.-np.exp(-.1*np.abs(img[:,1:] - img[:,:-1]))[:-1,:]
-        #diff13 = 1.-np.exp(-.1*np.abs(img[3:,:] - img[:-3,:]))[:,:-3]
-        #diff23 = 1.-np.exp(-.1*np.abs(img[:,3:] - img[:,:-3]))[:-3,:]
-        #diff15 = np.exp(-.3*np.abs(img[5:,:] - img[:-5,:]))[:,:-5]
-        #diff25 = np.exp(-.3*np.abs(img[:,5:] - img[:,:-5]))[:-5,:]
-        diff15 = (np.abs(img[5:,:] - img[:-5,:]))[:,:-5]
-        diff25 = (np.abs(img[:,5:] - img[:,:-5]))[:-5,:]
-        #diff15[nan_mask[:-5,:-5]] = 0
-        #diff25[nan_mask[:-5,:-5]] = 0
-        img_new = np.dstack([np.zeros_like(diff15), diff15, diff25 ])
-        w,h,c=img_new.shape
-        img_norm = np.linalg.norm(img_new,axis=2)
-        vec = img_new.reshape(w*h,3)
-        vec/=img_norm.reshape(w*h,1)
-        img_mean = vec.reshape(w,h,c)
-        img_mean[nan_mask[:-5,:-5],:] = 0
-        #diffx = np.abs(img_new[5:,:] - img_new[:-5,:])[:,:-5]
-        #diffy = np.abs(img_new[:,5:] - img_new[:,:-5])[:-5,:]
-        #img_new = .5*(diffx+diffy)
-        #print(img_new.min(),img_new.max())
-        #img_new = 1.-np.amax(np.dstack([diff11[:-4,:-4],diff21[:-4,:-4],diff15,diff25]),axis=2)
-        #diffx = 1.-np.exp(-.1*np.abs(np.diff(img,axis=0)))[:,:-1]
-        #diffy = 1.-np.exp(-.1*np.abs(np.diff(img,axis=1)))[:-1,:]
-        #img_blur = cv2.GaussianBlur(img_new,(7,7),1.)
-        #img_blur[nan_mask[:-5,:-5],:] = 0
-        #if self.img_prev.shape != img_blur.shape:
-        #    img_mean = img_blur
-        #else:
-        #    img_mean = img_blur #.5*(img_blur + self.img_prev)
-
-
-        #subsize = (120,160)
-        #img_mean = cv2.resize(img_mean, subsize, interpolation=cv2.INTER_NEAREST)
-        print(img_mean.shape)
-        #print(img_mean.flags)
-        print("Normals took %s sec"% (rospy.Time.now() - start).to_sec())
-        start = rospy.Time.now()
-        w,h,c=img_mean.shape
-        gc = GC_F3(.1)
-        gc.init_grid_adjacency(h,w)
-        gc.fit(np.ascontiguousarray(img_mean).reshape(h*w,3))
-        img_cartoon = gc.get_representer().reshape(w,h,3)
-        print("GC took %s sec"% (rospy.Time.now() - start).to_sec())
-        print(img_cartoon.shape)
-        
-        msg = self.bridge.cv2_to_imgmsg( (img_mean*255.).astype(np.uint8),'bgr8')
+        img = 1. - 348./(742.*img)
+        img[np.isnan(img)] = 1.
+        N = medNormals(img,5)
+        if True: #self.N.shape != N.shape:
+            self.N = N
+        else:
+            self.N = (self.N+N)*.5
+        msg = self.bridge.cv2_to_imgmsg( (self.N*255.).astype(np.uint8),'bgr8')
         msg.header = img_msg.header
         self.pub_img1.publish(msg)
-        #img_cartoon = cv2.bilateralFilter(img_mean,5,300,300)
-        msg = self.bridge.cv2_to_imgmsg( (img_cartoon*255.).astype(np.uint8),'bgr8')
-        self.pub_img2.publish(msg)
-        self.img_prev = img_mean
-        #print(img.min(),img.max())
-        #print(diffx.shape, diffx.min(), diffx.max())
-        #print(diffy.shape, diffy.min(), diffy.max())
+
+        #msg = self.bridge.cv2_to_imgmsg( (img_cartoon*255.).astype(np.uint8),'bgr8')
+        #self.pub_img2.publish(msg)
+        #self.img_prev = img_mean
         print("Process took %s sec"% (rospy.Time.now() - start).to_sec())
 
 if __name__ == '__main__':

@@ -11,12 +11,14 @@
 #ifndef GC_GRAPH_CONTRACTION_HPP
 #define GC_GRAPH_CONTRACTION_HPP
 
+#include <iostream>
 #include <vector>
 #include <list>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graph_traits.hpp>
 #include <Eigen/Core>
 #include <gc/policies.hpp>
+
 
 // Notations:
 //   templates:
@@ -64,8 +66,9 @@ namespace GC
 
     EventCompare comp;
     Scalar max_cost_;
+    int edge_its;
 
-    GraphContraction(Scalar max_cost) : max_cost_(max_cost){}
+    GraphContraction(Scalar max_cost) : max_cost_(max_cost),edge_its(0){}
 
     void init_grid_adjacency(int hh,int ww)
     {
@@ -95,7 +98,7 @@ namespace GC
       auto es = boost::edges(g);
       for (auto eit=es.first; eit!=es.second; ++eit, ++id) {
         g[*eit] = { id };
-        eprops[id] = { *eit, 0, true, false };
+        eprops[id] = { *eit, 0, false, false };
         que[id] = { id };
       }
     }
@@ -107,8 +110,17 @@ namespace GC
       auto vs = boost::vertices(g);
       for (auto vit=vs.first; vit!=vs.second; ++vit, ++id) {
         g[*vit] = { id, {id} };
-        vprops[id] = VertexPropsT(data.row(id));
+        vprops[id] = VertexPropsT(data.col(id));
+        //std::cout <<data.col(id)<<" ";
       }
+      //std::cout << std::endl;
+      Vd u,v;
+      for (auto qit=que.begin(); qit!=que.end(); ++qit) {
+        boost::tie(u,v) = split(eprops[qit->eid].edge);
+        eprops[qit->eid].cost = PolicyT::cost(vprops[g[u].vid],vprops[g[v].vid],
+                                              g[u].ids.size(),g[v].ids.size());
+      }
+      std::make_heap(que.begin(),que.end(),comp);
     }
 
     void fit()
@@ -122,7 +134,7 @@ namespace GC
         pop_que();
         if (eprops[eid].invalid) continue;
 
-        boost::tie(u,v) = split(eprops[eid].edge);        
+        boost::tie(u,v) = split(eprops[eid].edge);
         if (eprops[eid].outdated)
         {
           eprops[eid].outdated = false;
@@ -139,12 +151,16 @@ namespace GC
           ++iteration;
         }
       }
+      std::cout << "Collapsed Edges: " << iteration << std::endl;
+      std::cout << "Moved Edges    : " << edge_its << std::endl;
     }
 
     void contract(Vd const& a, Vd const& b)
     {
+
       auto oe = boost::out_edges(b,g);
       for (auto oe_it=oe.first; oe_it!=oe.second; ++oe_it) {
+        edge_its++;
         size_t eid = g[*oe_it].eid;
         eprops[eid].outdated = true;
         Vd b_to = boost::target(*oe_it,g);
@@ -167,7 +183,7 @@ namespace GC
       auto vs = boost::vertices(g);
       for (auto vit=vs.first; vit!=vs.second; ++vit) {
         for (auto it=g[*vit].ids.begin(); it!=g[*vit].ids.end(); ++it) {
-          out[*it] = c;
+          out(*it) = c;
         }
         ++c;
       }
@@ -181,7 +197,7 @@ namespace GC
       {
         auto rep = vprops[g[*vit].vid].representer(g[*vit].ids.size());
         for (auto it=g[*vit].ids.begin(); it!=g[*vit].ids.end(); ++it) {
-          out.row(*it) = rep;
+          out.col(*it) = rep;
         }
       }
     }
