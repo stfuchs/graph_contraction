@@ -14,6 +14,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 include_directories("include/")
 
 add_executable(example src/example.cpp)
+add_executable(qh_example src/qh_example.cpp)
 
 #add_library(eigenmap src/eigenmap.cpp)
 #add_library(libeigenmap SHARED py/libeigenmap.cpp)

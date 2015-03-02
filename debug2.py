@@ -50,7 +50,8 @@ def medNormals(z,l):
     info = (z.shape, np.min(dx), np.max(dx), np.min(dy), np.max(dy))
     print("Res: %s, x:[%s, %s], y:[%s, %s]"%info)
     denom = 1./np.linalg.norm(np.dstack([dx,dy,dz]),axis=2)
-    return (np.dstack([dx*denom,dy*denom,dz*denom])+1.)*.5
+    #return (np.dstack([dx*denom,dy*denom,dz*denom])+1.)*.5
+    return np.dstack( [(dx*denom+1.)*.5, (dy*denom+1.)*.5, dz*denom] )
 
 def meanNormals(z,l):
     diffx,diffy = gradients(z,l)
@@ -82,19 +83,53 @@ for x,y in zip(nimg,img):
     cv2.waitKey()
 """
 
+def pair_comp(d,th):
+    return lambda p: np.abs(d.flat[p[0]] - d.flat[p[1]])<th
+
+def adjacency(h,w,mask=None,condition=None):
+    aand = lambda i,j: i and j # elementwise array and
+    idx = np.arange(h*w).reshape(h,w)
+    xpair = np.array( zip(idx[:,:-1].flat, idx[:,1:].flat) )
+    ypair = np.array( zip(idx[:-1,:].flat, idx[1:,:].flat) )
+    if mask is None and condition is None:
+        return np.vstack( [xpair,ypair] )
+    
+    if condition is not None:
+        cxpair = np.array( map(condition, xpair) )
+        cypair = np.array( map(condition, ypair) )
+        if mask is None:
+            return np.vstack( [xpair[cxpair], ypair[cypair]] )
+    if mask is not None:
+        mxpair = np.array( map(aand, mask[:,:-1].flat, mask[:,1:].flat) )
+        mypair = np.array( map(aand, mask[:-1,:].flat, mask[1:,:].flat) )
+        if condition is None:
+            return np.vstack( [xpair[mxpair], ypair[mypair]] )
+
+    mxpair = np.array(map(aand, cxpair, mxpair))
+    mypair = np.array(map(aand, cypair, mypair))
+    return np.vstack( [xpair[mxpair], ypair[mypair]] )
+
+l = 5
 #N1 = normals(img[2],5)
-N2 = medNormals(img[2],5)
+N2 = medNormals(img[2],l)
+nan_mask = (img[2] != 1)[l:-l,l:-l]
 #N3 = meanNormals(img[2],5)
-Nsc = N2#cv2.resize(N2, (160,120), interpolation=cv2.INTER_NEAREST)
+Nsc = cv2.resize(N2, (4*2**7,3*2**7))#, interpolation=cv2.INTER_NEAREST)
 h,w,c = Nsc.shape
-gc = graphcontraction.GC_F3(.0005)
-gc.init_grid_adjacency(h,w)
+pairs = adjacency(h,w)#,nan_mask,pair_comp((img[2])[l:-l,l:-l],8./742.))
+gc = graphcontraction.GC_F3(.0015)
+#gc.init_grid_adjacency(h,w)
+gc.init_adjacency(pairs,h*w)
 gc.fit(Nsc.reshape(h*w,3))
 C = gc.get_representer().reshape(h,w,3)
+#from sklearn.cluster import KMeans, MiniBatchKMeans
+#mbkm = MiniBatchKMeans(8)
+#mbkm.fit(Nsc.reshape(h*w,c))
+#C = (mbkm.cluster_centers_[mbkm.labels_,:]).reshape(h,w,c)
 
-#sc1 = cv2.resize(N2, (640,480), interpolation=cv2.INTER_NEAREST)
-sc2 = cv2.resize(C, (640,480), interpolation=cv2.INTER_NEAREST)
-cv2.imshow("N2", N2)
+sc1 = Nsc#cv2.resize(Nsc, (640,480), interpolation=cv2.INTER_NEAREST)
+sc2 = C#cv2.resize(C, (640,480), interpolation=cv2.INTER_NEAREST)
+cv2.imshow("N2", sc1)
 cv2.imshow("C",sc2)
 cv2.moveWindow("N2", 10, 50)
 cv2.moveWindow("C", 850, 50)
