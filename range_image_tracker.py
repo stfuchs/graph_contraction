@@ -7,7 +7,7 @@ import numpy as np
 import cv2
 from cv_bridge import CvBridge
 
-from graphcontraction import GC_F3
+from graphcontraction import QGC_F3
 
 def gradients(z,l):
     #z = cv2.GaussianBlur(z,(l*2+1,l*2+1),10.)
@@ -52,17 +52,18 @@ class RangeImageTracker:
         img = 1. - 348./(742.*img)
         img[np.isnan(img)] = 1.
         N = medNormals(img,5)
-        if True: #self.N.shape != N.shape:
-            self.N = N
-        else:
-            self.N = (self.N+N)*.5
-        msg = self.bridge.cv2_to_imgmsg( (self.N*255.).astype(np.uint8),'bgr8')
+        Nsc = cv2.resize(N, (4*2**7,3*2**7), interpolation=cv2.INTER_NEAREST)
+        h,w,c = Nsc.shape
+        #gc = QGC_F3(.005,7)
+        #gc.fit(h,w,Nsc.reshape(h*w,c))
+        #C = gc.get_representer().reshape(h,w,3)
+        msg = self.bridge.cv2_to_imgmsg( (Nsc*255.).astype(np.uint8),'bgr8')
         msg.header = img_msg.header
         self.pub_img1.publish(msg)
-
-        #msg = self.bridge.cv2_to_imgmsg( (img_cartoon*255.).astype(np.uint8),'bgr8')
+        
+        
+        #msg = self.bridge.cv2_to_imgmsg( (C*255.).astype(np.uint8),'bgr8')
         #self.pub_img2.publish(msg)
-        #self.img_prev = img_mean
         print("Process took %s sec"% (rospy.Time.now() - start).to_sec())
 
 if __name__ == '__main__':

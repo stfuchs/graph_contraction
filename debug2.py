@@ -109,30 +109,44 @@ def adjacency(h,w,mask=None,condition=None):
     mypair = np.array(map(aand, cypair, mypair))
     return np.vstack( [xpair[mxpair], ypair[mypair]] )
 
+def gcfit(n,var,lev):
+    h,w,c = n.shape
+    gc = graphcontraction.QGC_F3(var,lev)
+    gc.fit(h,w,n.reshape(h*w,c))
+
 l = 5
 #N1 = normals(img[2],5)
 N2 = medNormals(img[2],l)
 nan_mask = (img[2] != 1)[l:-l,l:-l]
 #N3 = meanNormals(img[2],5)
-Nsc = cv2.resize(N2, (4*2**7,3*2**7))#, interpolation=cv2.INTER_NEAREST)
+Nsc = cv2.resize(N2, (4*2**7,3*2**7), interpolation=cv2.INTER_NEAREST)
+#np.save("normals",Nsc)
 h,w,c = Nsc.shape
-pairs = adjacency(h,w)#,nan_mask,pair_comp((img[2])[l:-l,l:-l],8./742.))
-gc = graphcontraction.GC_F3(.0015)
+#pairs = adjacency(h,w)#,nan_mask,pair_comp((img[2])[l:-l,l:-l],8./742.))
+#gc = graphcontraction.GC_F3(.0015)
 #gc.init_grid_adjacency(h,w)
-gc.init_adjacency(pairs,h*w)
-gc.fit(Nsc.reshape(h*w,3))
-C = gc.get_representer().reshape(h,w,3)
+#gc.init_adjacency(pairs,h*w)
+#gc.fit(Nsc.reshape(h*w,3))
+var = .004
+gc1 = graphcontraction.QGC_F3(var,8)
+gc1.fit(h,w,Nsc.reshape(h*w,3))
+C1 = gc1.get_representer().reshape(h,w,3)
+gc2 = graphcontraction.QGC_F3(var,0)
+gc2.fit(h,w,Nsc.reshape(h*w,3))
+C2 = gc2.get_representer().reshape(h,w,3)
 #from sklearn.cluster import KMeans, MiniBatchKMeans
 #mbkm = MiniBatchKMeans(8)
 #mbkm.fit(Nsc.reshape(h*w,c))
 #C = (mbkm.cluster_centers_[mbkm.labels_,:]).reshape(h,w,c)
 
 sc1 = Nsc#cv2.resize(Nsc, (640,480), interpolation=cv2.INTER_NEAREST)
-sc2 = C#cv2.resize(C, (640,480), interpolation=cv2.INTER_NEAREST)
+#sc2 = C1#cv2.resize(C, (640,480), interpolation=cv2.INTER_NEAREST)
 cv2.imshow("N2", sc1)
-cv2.imshow("C",sc2)
+cv2.imshow("C1",C1)
+cv2.imshow("C2",C2)
 cv2.moveWindow("N2", 10, 50)
-cv2.moveWindow("C", 850, 50)
+cv2.moveWindow("C1", 580, 50)
+cv2.moveWindow("C2", 1160, 50)
 cv2.waitKey()
 """
 cv2.imshow("N1", N1)

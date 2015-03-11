@@ -6,8 +6,7 @@
 #include <math.h>
 
 namespace GC
-{
-  
+{ 
   template<typename Scalar, int Dim>
   struct QuadHierarchicalContraction
   {
@@ -16,12 +15,16 @@ namespace GC
     typedef typename BaseContr::VertexPropsT VertexProps;
     typedef typename BaseContr::EdgePropsT EdgeProps;
     typedef Eigen::Matrix<Scalar,Dim,Eigen::Dynamic> Mat;
+    typedef Eigen::Matrix<int,1,Eigen::Dynamic> LabelMat;
     typedef Eigen::Array<Scalar,Dim,Eigen::Dynamic> Arr;
     typedef Eigen::Array<Scalar,Eigen::Dynamic,Eigen::Dynamic> ArrY;
 
     Scalar max_cost_;
+    int levels_;
+    BaseContr g;
 
-    QuadHierarchicalContraction(Scalar max_cost) : max_cost_(max_cost) {}
+    QuadHierarchicalContraction(Scalar max_cost, int levels)
+      : max_cost_(.5*max_cost), levels_(levels), g(max_cost) {}
 
     void quad_reduce(Arr& in, int ch, int cw, Arr& out)
     {
@@ -46,31 +49,17 @@ namespace GC
 
     void init_data(int height, int width, Mat const& data)
     {
-      int hi=log2(height);
-      int wi=log2(width);
-      for(int i=1; i<log2(height); ++i){
-        if( height % (2<<i) != 0) { hi=i-1; break; }
-      }
-      for(int i=1; i<log2(width); ++i){
-        if( width % (2<<i) != 0) { wi=i-1; break; }
-      }
-      int level = std::min(hi,wi);
-      std::cout << "Your hierarchy will have at most " << level << " levels\n";
-      if (level!=0) {
-      std::cout << "with a resolution of "
-                << width/double(2<<level) << " x "
-                << height/double(2<<level) << " at the top\n";
-      }
-
       int ch = height;
       int cw = width;
       std::vector<Arr> sum, sum_sqr;
       std::vector<Eigen::Array<Scalar,1,Eigen::Dynamic> > cost;
-      std::vector<Eigen::Array<bool,1,Eigen::Dynamic> > split;
       sum.push_back(data.array());
       sum_sqr.push_back(data.array()*data.array());
-      for(int i=0;i<=level;++i)
+      for(int i=0;i<levels_;++i)
       {
+        if (int(ch%2) != 0 || int(cw%2) != 0) {
+          std::cout << "Max level: "<< i << std::endl; break;
+        }
         sum.push_back(Arr());
         sum_sqr.push_back(Arr());
         quad_reduce(sum[i], ch, cw, sum.back());
@@ -79,13 +68,90 @@ namespace GC
         cw /= 2;
         Scalar n_inv = 1./pow(4.,Scalar(i+1));
         cost.push_back( (n_inv*(sum_sqr.back() - n_inv*sum.back()*sum.back())).colwise().sum() );
-        split.push_back( cost.back()>max_cost_ );
-        if (split.back().all())
+      }      
+
+      Vd invalid = boost::add_vertex({0,{0} }, g.g);
+      std::vector<Vd> vds(height*width,invalid);
+      // down propagation of hierarchies
+      g.vprops.reserve(width*height);
+      for(int i=cost.size(); i>0; --i)
+      {
+        int si = 1<<i; // inner stride at level i
+        int wi = width/si; // outer stride at level i
+        for(int j=0; j<cost[i-1].cols(); ++j)
         {
-          std::cout << "break at level " << i << std::endl;
-          break;
+          int li = (j/wi*width + j%wi)*si; // leave index
+          if ( vds[li]==invalid && (cost[i-1][j] < max_cost_) )
+          {
+            g.vprops.push_back( { sum[i].col(j), sum_sqr[i].col(j) } );
+            Vd vnew = boost::add_vertex(g.g);
+            g.g[vnew].vid = g.vprops.size()-1;
+            for (int r=li; r<li+si*width; r+=width) {
+              for (int c=r; c<r+si; ++c) {
+                vds[c] = vnew;
+                g.g[vnew].ids.push_back(c);
+              }
+            }
+          }
         }
       }
+      // finalize lowest level
+      for (size_t j=0; j<height*width; ++j)
+      {
+        if (vds[j] == invalid)
+        {
+          g.vprops.push_back( { sum[0].col(j), sum_sqr[0].col(j) } );
+          vds[j] = boost::add_vertex( { g.vprops.size()-1, {j} }, g.g);
+        }
+      }
+      // create horizontal edges
+      std::cout << height*(width-1)+width*(height-1) << " ";
+      g.eprops.reserve(height*(width-1)+width*(height-1));
+      for (int h = 0; h<height; ++h)
+      {
+        for (int w = h*width; w<(h+1)*width-1; ++w)
+        {
+          if (vds[w] != vds[w+1])
+          {
+            auto res = boost::add_edge(vds[w], vds[w+1], g.g);
+            if (res.second)
+            {
+              Ed enew = res.first;
+              g.eprops.push_back( { enew, 0, false, false } );
+              g.g[enew].eid = g.eprops.size()-1;
+            }
+          }
+        }
+      }
+      // create vertical edges
+      for (int w = 0; w<width; ++w)
+      {
+        for (int h = w; h<(height-1)*width+w; h+=width)
+        {
+          if (vds[h] != vds[h+width])
+          {
+            auto res = boost::add_edge(vds[h], vds[h+width], g.g);
+            if (res.second)
+            {
+              Ed enew = res.first;
+              g.eprops.push_back( { enew, 0, false, false } );
+              g.g[enew].eid = g.eprops.size()-1;
+            }
+          }
+        }
+      }
+      std::cout << g.eprops.size() << std::endl;
+      boost::clear_vertex(invalid,g.g);
+      boost::remove_vertex(invalid,g.g);
+      g.make_que();
+    }
+
+    inline void fit() { g.fit(); };
+    inline void get_labels(Eigen::Map<LabelMat>& out) const {
+      g.get_labels(out);
+    }
+    inline void get_representer(Eigen::Map<Mat>& out) const {
+      g.get_representer(out);
     }
   };
 }

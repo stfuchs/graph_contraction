@@ -25,6 +25,7 @@ namespace GC
       VertexProps() {}
       VertexProps(Arr const& data)
         : sum(data), sum_sqr(data*data) {}
+      VertexProps(Arr const& _sum, Arr const& _sum_sqr) :sum(_sum),sum_sqr(_sum_sqr) {} 
 
       inline Arr representer(size_t n) const { return (sum/Scalar(n)); }
 
