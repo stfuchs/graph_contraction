@@ -14,6 +14,7 @@
 #include <iostream>
 #include <vector>
 #include <list>
+#include <chrono>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/graph_traits.hpp>
 #include <Eigen/Core>
@@ -29,28 +30,11 @@
 
 namespace GC
 {
-  struct Vertex { size_t vid; std::list<size_t> ids; };
-  struct Edge { size_t eid; };
-
-  //typedef boost::adjacency_list<boost::listS,boost::listS,boost::undirectedS,Vertex,Edge> GraphT;
-  typedef boost::adjacency_list<boost::listS,boost::setS,boost::undirectedS,Vertex,Edge> GraphT;
-  typedef typename boost::graph_traits<GraphT>::vertex_descriptor Vd;
-  typedef typename boost::graph_traits<GraphT>::edge_descriptor Ed;
-
-  template<typename Scalar>
-  struct EdgeProps
-  {
-    Ed edge;
-    Scalar cost;
-    bool outdated;
-    bool invalid;
-  };
-
   template<typename Scalar, int Dim, template<typename,int> class Policy>
   struct GraphContraction
   {
     typedef Policy<Scalar,Dim> PolicyT;
-    typedef typename PolicyT::VertexProps VertexPropsT;
+    typedef typename PolicyT::Data DataT;
     typedef EdgeProps<Scalar> EdgePropsT;
     
     struct Event { size_t eid; };
@@ -62,101 +46,66 @@ namespace GC
 
     GraphT g;
     std::vector<EdgePropsT> eprops;
-    std::vector<VertexPropsT> vprops;
     std::vector<Event> que;
 
     EventCompare comp;
-    Scalar max_cost_;
+    Scalar max_cost;
+    DataT* data;
     int edge_its;
 
-    GraphContraction(Scalar max_cost) : max_cost_(max_cost),edge_its(0){}
 
-    void init_grid_adjacency(int hh,int ww)
-    {
-      std::vector<std::pair<int,int> > edges;
-      for (int h=0; h<hh-1; ++h) {
-        for (int w=0; w<ww-1; ++w) {
-          edges.push_back( {h*ww+w, h*ww+w+1} );
-          edges.push_back( {h*ww+w, (h+1)*ww+w} );
-        }
-        edges.push_back( {(h+1)*ww-1, (h+2)*ww-1} );
-      }
-      for (int w=0; w<ww-1; ++w) {
-        edges.push_back( {(hh-1)*ww+w, (hh-1)*ww+w+1} );
-      }
-      init_adjacency(edges,ww*hh);
-    }
-
-    void init_adjacency(std::vector<std::pair<int,int> > const& edges, int ndata)
-    {
-      vprops.resize(ndata);
-      eprops.resize(edges.size());
-      //que.resize(edges.size());
-      g = GraphT(edges.begin(),edges.end(), ndata);
-
-      size_t id = 0;
-      auto es = boost::edges(g);
-      for (auto eit=es.first; eit!=es.second; ++eit, ++id) {
-        g[*eit] = { id };
-        eprops[id] = { *eit, 0, false, false };
-        //que[id] = { id };
-      }
-    }
-
-    template<typename DataT>
-    void init_data(DataT const& data)
-    {
-      size_t id = 0;
-      auto vs = boost::vertices(g);
-      for (auto vit=vs.first; vit!=vs.second; ++vit, ++id) {
-        g[*vit] = { id, {id} };
-        vprops[id] = VertexPropsT(data.col(id));
-      }
-      make_que();
-    }
+    GraphContraction(Scalar _max_cost, DataT* _data)
+      : max_cost(_max_cost), data(_data), edge_its(0){}
 
     void fit()
     {
+      using namespace std::chrono;
+      auto start = system_clock::now();
       int iteration = 0;
       size_t eid;
       Vd u, v;
       while (!que.empty())
       {
-        eid = que.front().eid;
-        pop_que();
+        eid = pop_que();
         if (eprops[eid].invalid) continue;
 
         boost::tie(u,v) = split(eprops[eid].edge);
         if (eprops[eid].outdated)
         {
-          eprops[eid].cost = PolicyT::cost(vprops[g[u].vid],vprops[g[v].vid],
-                                           g[u].ids.size(),g[v].ids.size());
-          if(eprops[eid].cost <= max_cost_) {
+          eprops[eid].cost = PolicyT::cost(g[u], g[v], data);
+          if(eprops[eid].cost <= max_cost) {
             eprops[eid].outdated = false;
             push_que(eid);
           }
         }
-        else if (eprops[eid].cost <= max_cost_)
+        else if (eprops[eid].cost <= max_cost)
         {
           if (boost::out_degree(u,g) > boost::out_degree(v,g))
             contract(u,v);
           else
             contract(v,u);
-          ++iteration;
+          //++iteration;
         }
       }
-      std::cout << "collapsed edges: " << iteration << std::endl;
+      auto end = system_clock::now();
+      auto elapsed = duration_cast<milliseconds>(end-start);
+      std::cout << "fit duration   : " << elapsed.count() <<" ms"<<std::endl;
+      /*std::cout << "collapsed edges: " << iteration << std::endl;
       std::cout << "moved edges    : " << edge_its << std::endl;
       std::cout << "num vertices   : " << boost::num_vertices(g) << std::endl;
       std::cout << "num edges      : " << boost::num_edges(g) << std::endl;
+      std::cout << std::endl;*/
     }
 
     void contract(Vd const& a, Vd const& b)
     {
-
+      //PolicyT::merge(g[a],g[b],data);
+      //g[b].vid = g[a].vid;
+      //return;
+      
       auto oe = boost::out_edges(b,g);
       for (auto oe_it=oe.first; oe_it!=oe.second; ++oe_it) {
-        edge_its++;
+        //edge_its++;
         size_t eid = g[*oe_it].eid;
         eprops[eid].outdated = true;
         Vd b_to = boost::target(*oe_it,g);
@@ -165,8 +114,7 @@ namespace GC
         else
           eprops[eid].edge = boost::add_edge(b_to, a, {eid}, g).first;
       }
-      PolicyT::merge(vprops[g[a].vid], vprops[g[b].vid]);
-      g[a].ids.splice(g[a].ids.end(), g[b].ids);
+      PolicyT::merge(g[a], g[b], data);
       boost::clear_vertex(b,g);
       boost::remove_vertex(b,g);
     }
@@ -174,7 +122,6 @@ namespace GC
     template<typename OutT>
     void get_labels(OutT& out) const
     {
-      //out.resize(vprops.size(),1);
       int c = 0;
       auto vs = boost::vertices(g);
       for (auto vit=vs.first; vit!=vs.second; ++vit) {
@@ -187,13 +134,13 @@ namespace GC
     template<typename OutT>
     void get_representer(OutT& out) const
     {
-      //out.resize(vprops.size(),Dim);
       auto vs = boost::vertices(g);
       for (auto vit=vs.first; vit!=vs.second; ++vit)
       {
-        auto rep = vprops[g[*vit].vid].representer(g[*vit].ids.size());
+        auto repr = PolicyT::repr(g[*vit], data);
+        //for (auto it=data->vids[g[*vit].vid].begin(); it!=data->vids[g[*vit].vid].end(); ++it) {
         for (auto it=g[*vit].ids.begin(); it!=g[*vit].ids.end(); ++it) {
-          out.col(*it) = rep;
+          out.col(*it) = repr;
         }
       }
     }
@@ -204,9 +151,8 @@ namespace GC
       for (size_t i=0; i<eprops.size(); ++i)
       {
         boost::tie(u,v) = split(eprops[i].edge);
-        eprops[i].cost = PolicyT::cost(vprops[g[u].vid],vprops[g[v].vid],
-                                       g[u].ids.size(),g[v].ids.size());
-        if (eprops[i].cost <= max_cost_){
+        eprops[i].cost = PolicyT::cost(g[u], g[v], data);
+        if (eprops[i].cost <= max_cost){
           que.push_back({i});
           eprops[i].outdated = false;
         }
@@ -216,16 +162,6 @@ namespace GC
       }
       comp.p=&eprops;
       std::make_heap(que.begin(),que.end(),comp);
-      /*
-      Vd u,v;
-      for (auto qit=que.begin(); qit!=que.end(); ++qit) {
-        boost::tie(u,v) = split(eprops[qit->eid].edge);
-        eprops[qit->eid].cost = PolicyT::cost(vprops[g[u].vid],vprops[g[v].vid],
-                                              g[u].ids.size(),g[v].ids.size());
-      }
-      comp.p=&eprops;
-      std::make_heap(que.begin(),que.end(),comp);
-      */
     }
   
     inline void push_que(size_t eid)
@@ -234,18 +170,18 @@ namespace GC
       std::push_heap(que.begin(), que.end(), comp);
     }
 
-    inline void pop_que()
+    inline size_t pop_que()
     {
+      size_t res = que.front().eid;
       std::pop_heap(que.begin(), que.end(), comp);
       que.pop_back();
+      return res;
     }
 
     inline std::pair<Vd,Vd> split(Ed e) const
     {
       return std::make_pair(boost::source(e,g), boost::target(e,g));
     }
-
-    inline int data_size() const { return vprops.size(); }
   };
 }
 #endif

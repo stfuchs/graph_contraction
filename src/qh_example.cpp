@@ -23,7 +23,7 @@ int main(int argc, char** argv)
   std::cout << std::fixed << std::setw(11) << std::setprecision(4) << " \n";
 
   auto start = system_clock::now();
-  GC::QuadHierarchicalContraction<Scalar,dim> gc(.5,0);
+  GC::QuadHierarchicalContraction<Scalar,dim> gc(.5,.5,0);
   gc.init_data(h,w,map);
   gc.fit();
   gc.get_representer(mres);

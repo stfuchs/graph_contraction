@@ -13,71 +13,56 @@
 
 namespace GC
 {
+  struct Vertex { size_t vid; std::list<size_t> ids; };
+  struct Edge { size_t eid; };
+
+  typedef boost::adjacency_list<boost::listS,boost::setS,boost::undirectedS,Vertex,Edge> GraphT;
+  typedef typename boost::graph_traits<GraphT>::vertex_descriptor Vd;
+  typedef typename boost::graph_traits<GraphT>::edge_descriptor Ed;
+
+  template<typename Scalar>
+  struct EdgeProps
+  {
+    //EdgeProps() : edge(), cost(0), outdated(false), invalid(false) {}
+    Ed edge;
+    Scalar cost;
+    bool outdated;
+    bool invalid;
+  };
+
+  
   template<typename Scalar, int Dim>
   struct Variance
   {
+    struct Data
+    {
+      std::vector<Scalar*> vsum;
+      std::vector<Scalar*> vsumsqr;
+      //std::vector<std::list<size_t> > vids;
+    };
+    
     typedef Eigen::Array<Scalar,Dim,1> Arr;
-    typedef Eigen::Matrix<Scalar,Dim,1> Vec;
-    typedef Eigen::Matrix<Scalar,Dim,Dim> Mat;
+    typedef Eigen::Map<Arr> Map;
 
-    struct VertexProps
+    static inline Scalar cost(Vertex const& a, Vertex const& b, Data* d)
     {
-      VertexProps() {}
-      VertexProps(Arr const& data)
-        : sum(data), sum_sqr(data*data) {}
-      VertexProps(Arr const& _sum, Arr const& _sum_sqr) :sum(_sum),sum_sqr(_sum_sqr) {} 
-
-      inline Arr representer(size_t n) const { return (sum/Scalar(n)); }
-
-      Arr sum;
-      Arr sum_sqr;
-    };
-
-    static inline Scalar cost(VertexProps const& a, VertexProps const& b, size_t na, size_t nb)
-    {
-      Scalar n_inv = 1./Scalar(na+nb);
-      Arr mean = a.sum+b.sum;
-      return ( n_inv*((a.sum_sqr+b.sum_sqr) - n_inv*mean*mean) ).sum();
-      //return cov.trace();
+      Scalar n_inv = 1./Scalar(a.ids.size()+b.ids.size());
+      Arr mean = Map(d->vsum[a.vid]) + Map(d->vsum[b.vid]);
+      return ( n_inv*( Map(d->vsumsqr[a.vid]) + Map(d->vsumsqr[b.vid]) - n_inv*mean*mean ) ).sum();
     }
 
-    static inline void merge(VertexProps& a, VertexProps const& b)
+    static inline void merge(Vertex& a, Vertex& b, Data* d)
     {
-      a.sum += b.sum;
-      a.sum_sqr += b.sum_sqr;
+      Map(d->vsum[a.vid]) += Map(d->vsum[b.vid]);
+      Map(d->vsumsqr[a.vid]) += Map(d->vsumsqr[b.vid]);
+      //d->vids[a.vid].splice(d->vids[a.vid].end(), d->vids[b.vid]);
+      a.ids.splice(a.ids.end(), b.ids);
     }
-  };
-
-  template<typename Scalar>
-  struct Variance<Scalar,1>
-  {
-    typedef Eigen::Matrix<Scalar,1,1> Vec;
-    typedef Eigen::Matrix<Scalar,1,1> Mat;
-
-    struct VertexProps
+    
+    static inline Arr repr(Vertex const& a, Data* d)
     {
-      VertexProps() {}
-      VertexProps(Vec const& data)
-        : sum(data), sum_sqr(data*data) {}
-
-      inline Vec representer(size_t n) const { return sum/Scalar(n); }
-
-      Vec sum;
-      Mat sum_sqr;
-    };
-
-    static inline Scalar cost(VertexProps const& a, VertexProps const& b, size_t na, size_t nb)
-    {
-      Scalar n_inv = 1./Scalar(na+nb);
-      Vec mean = a.sum+b.sum;
-      Mat cov = n_inv*((a.sum_sqr+b.sum_sqr) - n_inv*mean*mean);
-      return cov.trace();
-    }
-
-    static inline void merge(VertexProps& a, VertexProps const& b)
-    {
-      a.sum += b.sum;
-      a.sum_sqr += b.sum_sqr;
+      //return Map(d->vsum[a.vid])/d->vids[a.vid].size();
+      return Map(d->vsum[a.vid])/a.ids.size();
     }
   };
 }

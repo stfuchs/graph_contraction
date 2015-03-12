@@ -11,20 +11,25 @@ namespace GC
   struct QuadHierarchicalContraction
   {
     typedef Variance<Scalar,Dim> Policy;
+    typedef typename Policy::Data Data;
     typedef GraphContraction<Scalar,Dim,Variance> BaseContr;
-    typedef typename BaseContr::VertexPropsT VertexProps;
     typedef typename BaseContr::EdgePropsT EdgeProps;
     typedef Eigen::Matrix<Scalar,Dim,Eigen::Dynamic> Mat;
     typedef Eigen::Matrix<int,1,Eigen::Dynamic> LabelMat;
     typedef Eigen::Array<Scalar,Dim,Eigen::Dynamic> Arr;
     typedef Eigen::Array<Scalar,Eigen::Dynamic,Eigen::Dynamic> ArrY;
+    typedef Eigen::Array<Scalar,Dim,1> Vec;
 
-    Scalar max_cost_;
-    int levels_;
+    Scalar max_cost;
+    int levels;
+    Data vdata;
     BaseContr g;
+    std::list<Arr> sum;
+    std::list<Arr> sum_sqr;
 
-    QuadHierarchicalContraction(Scalar max_cost, int levels)
-      : max_cost_(.5*max_cost), levels_(levels), g(max_cost) {}
+
+    QuadHierarchicalContraction(Scalar ratio_, Scalar max_cost_, int levels_)
+      : max_cost(ratio_*max_cost_), levels(levels_), vdata(), g(max_cost_, &vdata) {}
 
     void quad_reduce(Arr& in, int ch, int cw, Arr& out)
     {
@@ -49,64 +54,80 @@ namespace GC
 
     void init_data(int height, int width, Mat const& data)
     {
+      using namespace std::chrono;
+      auto start = system_clock::now();
       int ch = height;
       int cw = width;
-      std::vector<Arr> sum, sum_sqr;
-      std::vector<Eigen::Array<Scalar,1,Eigen::Dynamic> > cost;
+      std::list<Eigen::Array<Scalar,1,Eigen::Dynamic> > cost;
       sum.push_back(data.array());
       sum_sqr.push_back(data.array()*data.array());
-      for(int i=0;i<levels_;++i)
+      auto psum = sum.begin();
+      auto psumsqr = sum_sqr.begin();
+      for(int i=0;i<levels;++i)
       {
         if (int(ch%2) != 0 || int(cw%2) != 0) {
           std::cout << "Max level: "<< i << std::endl; break;
         }
+
         sum.push_back(Arr());
         sum_sqr.push_back(Arr());
-        quad_reduce(sum[i], ch, cw, sum.back());
-        quad_reduce(sum_sqr[i], ch, cw, sum_sqr.back());
+        quad_reduce(*psum, ch, cw, sum.back());
+        quad_reduce(*psumsqr, ch, cw, sum_sqr.back());
+        ++psum; ++psumsqr; // move one level up
         ch /= 2;
         cw /= 2;
         Scalar n_inv = 1./pow(4.,Scalar(i+1));
-        cost.push_back( (n_inv*(sum_sqr.back() - n_inv*sum.back()*sum.back())).colwise().sum() );
-      }      
+        cost.push_back( (n_inv*(*psumsqr - n_inv*(*psum)*(*psum))).colwise().sum() );
+      }
 
       Vd invalid = boost::add_vertex({0,{0} }, g.g);
-      std::vector<Vd> vds(height*width,invalid);
+      std::vector<Vd> vds(width*height,invalid);
       // down propagation of hierarchies
-      g.vprops.reserve(width*height);
+      size_t iv=0;
+      //vdata.vsum.resize(width*height);
+      //vdata.vsumsqr.resize(width*height);
+      auto pcost = --cost.end();
       for(int i=cost.size(); i>0; --i)
       {
         int si = 1<<i; // inner stride at level i
         int wi = width/si; // outer stride at level i
-        for(int j=0; j<cost[i-1].cols(); ++j)
+        for(int j=0; j<pcost->cols(); ++j)
         {
           int li = (j/wi*width + j%wi)*si; // leave index
-          if ( vds[li]==invalid && (cost[i-1][j] < max_cost_) )
+          if ( vds[li]==invalid && ((*pcost)[j] < max_cost) )
           {
-            g.vprops.push_back( { sum[i].col(j), sum_sqr[i].col(j) } );
+            vdata.vsum.push_back( psum->data() + j*Dim );
+            vdata.vsumsqr.push_back( psumsqr->data() + j*Dim );
             Vd vnew = boost::add_vertex(g.g);
-            g.g[vnew].vid = g.vprops.size()-1;
+            g.g[vnew].vid = iv;
             for (int r=li; r<li+si*width; r+=width) {
               for (int c=r; c<r+si; ++c) {
                 vds[c] = vnew;
                 g.g[vnew].ids.push_back(c);
               }
             }
+            //vdata.vids.push_back(g.g[vnew].ids);
+            ++iv;
           }
         }
+        --psum; --psumsqr; --pcost; // move one level down
       }
       // finalize lowest level
       for (size_t j=0; j<height*width; ++j)
       {
         if (vds[j] == invalid)
         {
-          g.vprops.push_back( { sum[0].col(j), sum_sqr[0].col(j) } );
-          vds[j] = boost::add_vertex( { g.vprops.size()-1, {j} }, g.g);
+          vdata.vsum.push_back( psum->data() + j*Dim );
+          vdata.vsumsqr.push_back( psumsqr->data() + j*Dim );
+          vds[j] = boost::add_vertex( { iv, {j} }, g.g);
+          //vdata.vids.push_back(g.g[vds[j]].ids);
+          ++iv;
         }
       }
+      //vdata.vsum.resize(iv);
+      //vdata.vsumsqr.resize(iv);
       // create horizontal edges
-      std::cout << height*(width-1)+width*(height-1) << " ";
-      g.eprops.reserve(height*(width-1)+width*(height-1));
+      int ie = 0;
       for (int h = 0; h<height; ++h)
       {
         for (int w = h*width; w<(h+1)*width-1; ++w)
@@ -117,8 +138,10 @@ namespace GC
             if (res.second)
             {
               Ed enew = res.first;
-              g.eprops.push_back( { enew, 0, false, false } );
-              g.g[enew].eid = g.eprops.size()-1;
+              g.eprops.push_back({enew, 0, false, false });
+              //g.eprops[ie].edge = enew;
+              g.g[enew].eid = ie;
+              ++ie;
             }
           }
         }
@@ -134,16 +157,21 @@ namespace GC
             if (res.second)
             {
               Ed enew = res.first;
-              g.eprops.push_back( { enew, 0, false, false } );
-              g.g[enew].eid = g.eprops.size()-1;
+              g.eprops.push_back({enew, 0, false, false });
+              //g.eprops[ie].edge = enew;
+              g.g[enew].eid = ie;
+              ++ie;
             }
           }
         }
       }
-      std::cout << g.eprops.size() << std::endl;
+      //g.eprops.resize(ie);
       boost::clear_vertex(invalid,g.g);
       boost::remove_vertex(invalid,g.g);
       g.make_que();
+      auto end = system_clock::now();
+      auto elapsed = duration_cast<milliseconds>(end-start);
+      std::cout << "init duration  : " << elapsed.count() <<" ms"<<std::endl;
     }
 
     inline void fit() { g.fit(); };
